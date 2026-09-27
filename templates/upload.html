@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Upload Video – Helmet Detection{% endblock %}
+
+{% block content %}
+<h4 class="page-title mb-4">
+  <i class="bi bi-film me-2"></i>Upload Video Detection
+</h4>
+
+<div class="row g-4">
+
+  <!-- Upload card -->
+  <div class="col-lg-5">
+    <div class="card dark-card">
+      <div class="card-header">
+        <i class="bi bi-film me-2"></i>Select Video File
+      </div>
+      <div class="card-body">
+
+        <div id="dropZone" class="drop-zone mb-3">
+          <i class="bi bi-cloud-arrow-up" style="font-size:2.5rem"></i>
+          <p class="mt-2 mb-0">Drag &amp; drop or click to browse</p>
+          <small class="text-muted">MP4, AVI, MOV, MKV</small>
+          <input type="file" id="fileInput" class="d-none" accept="video/*"/>
+        </div>
+
+        <div id="previewBox" class="mb-3 d-none text-center">
+          <video id="previewVid" class="w-100 rounded" controls
+                 style="max-height:200px"></video>
+          <p id="fileName" class="text-muted small mt-1"></p>
+        </div>
+
+        <div id="progressWrap" class="d-none mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted">Processing…</small>
+            <small id="pctLabel">0%</small>
+          </div>
+          <div class="progress" style="height:8px">
+            <div id="progressBar"
+                 class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                 style="width:0%"></div>
+          </div>
+        </div>
+
+        <button id="btnDetect" class="btn btn-success w-100" disabled>
+          <i class="bi bi-search me-2"></i>Run Detection
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result card -->
+  <div class="col-lg-7">
+    <div class="card dark-card h-100">
+      <div class="card-header">
+        <i class="bi bi-eye me-2"></i>Detection Result
+      </div>
+      <div class="card-body" id="resultBox">
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-hourglass" style="font-size:2rem"></i>
+          <p class="mt-2">Results will appear here after detection.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone   = document.getElementById('dropZone');
+const fileInput  = document.getElementById('fileInput');
+const btnDetect  = document.getElementById('btnDetect');
+const resultBox  = document.getElementById('resultBox');
+const previewBox = document.getElementById('previewBox');
+const progWrap   = document.getElementById('progressWrap');
+const progBar    = document.getElementById('progressBar');
+const pctLabel   = document.getElementById('pctLabel');
+let selectedFile = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  selectedFile = file;
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('previewVid').src = URL.createObjectURL(file);
+  previewBox.classList.remove('d-none');
+  btnDetect.disabled = false;
+}
+
+btnDetect.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  btnDetect.disabled = true;
+  progWrap.classList.remove('d-none');
+  resultBox.innerHTML = `
+    <div class="text-center text-muted py-4">
+      <div class="spinner-border text-success"></div>
+      <p class="mt-2">Processing video…</p>
+    </div>`;
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const res  = await fetch('/api/upload-video', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.filename) {
+      pollProgress(data.filename);
+    } else {
+      showError(data.error || 'Unknown error');
+    }
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+function pollProgress(filename) {
+  const iv = setInterval(async () => {
+    const r = await fetch(`/api/video-progress/${encodeURIComponent(filename)}`);
+    const d = await r.json();
+    const p = Math.max(0, d.progress);
+    progBar.style.width  = p + '%';
+    pctLabel.textContent = p + '%';
+    if (p >= 100) {
+      clearInterval(iv);
+      progWrap.classList.add('d-none');
+      btnDetect.disabled = false;
+      resultBox.innerHTML = `
+        <div class="alert alert-success">
+          <i class="bi bi-check-circle me-2"></i>Video processed successfully!
+        </div>
+        <p class="text-muted">
+          Check <a href="/history" class="text-warning">Challan History</a>
+          for any violations found.
+        </p>`;
+    }
+  }, 1000);
+}
+
+function showError(msg) {
+  resultBox.innerHTML = `<div class="alert alert-danger">Error: ${msg}</div>`;
+  progWrap.classList.add('d-none');
+  btnDetect.disabled = false;
+}
+</script>
+{% endblock %}

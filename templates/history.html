@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Challan History{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="page-title mb-0">
+    <i class="bi bi-clock-history me-2"></i>Challan History
+  </h4>
+  <a href="/api/violations?limit=1000"
+     class="btn btn-sm btn-outline-warning" download="violations.json">
+    <i class="bi bi-download me-1"></i>Export JSON
+  </a>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="stat-card compact">
+      <div class="stat-value">{{ stats.total }}</div>
+      <div class="stat-label">Total Violations</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="stat-card compact">
+      <div class="stat-value">{{ stats.today }}</div>
+      <div class="stat-label">Today</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="stat-card compact">
+      <div class="stat-value">{{ stats.pending }}</div>
+      <div class="stat-label">Pending</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card dark-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover align-middle mb-0">
+        <thead class="table-secondary">
+          <tr>
+            <th>#</th>
+            <th>Thumbnail</th>
+            <th>Violation</th>
+            <th>Confidence</th>
+            <th>Source</th>
+            <th>Date &amp; Time</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in violations %}
+          {% set img_url = v.image_path if v.image_path else '' %}
+          <tr id="row-{{ v.id }}">
+
+            <td class="text-muted small">{{ v.id }}</td>
+
+            <!-- Thumbnail -->
+            <td style="width:80px">
+              {% if img_url %}
+              <img src="{{ img_url }}"
+                   alt="Evidence #{{ v.id }}"
+                   style="width:72px;height:48px;object-fit:cover;
+                          border-radius:4px;cursor:pointer;
+                          border:1px solid #2a2d3e"
+                   onerror="this.src='/static/img/no-image.png';
+                            this.style.opacity='.4'"
+                   onclick="openEvidence('{{ img_url }}',
+                             '{{ v.date }} {{ v.time }}',
+                             {{ v.id }})"/>
+              {% else %}
+              <div style="width:72px;height:48px;background:#1a1d27;
+                          border-radius:4px;display:flex;
+                          align-items:center;justify-content:center">
+                <i class="bi bi-image text-muted"></i>
+              </div>
+              {% endif %}
+            </td>
+
+            <td><span class="badge bg-danger">{{ v.violation_type }}</span></td>
+
+            <td>
+              <div class="progress mb-1" style="height:5px;width:60px">
+                <div class="progress-bar bg-info"
+                     style="width:{{ (v.confidence*100)|int }}%"></div>
+              </div>
+              <small class="text-muted">{{ "%.0f"|format(v.confidence*100) }}%</small>
+            </td>
+
+            <td><span class="badge bg-secondary">{{ v.source }}</span></td>
+            <td class="small text-muted">{{ v.date }}<br/>{{ v.time }}</td>
+
+            <td>
+              {% if v.status == 'Pending' %}
+              <span class="badge bg-warning text-dark">Pending</span>
+              {% else %}
+              <span class="badge bg-success">{{ v.status }}</span>
+              {% endif %}
+            </td>
+
+            <!-- Actions -->
+            <td>
+              <div class="d-flex gap-1 flex-wrap">
+                <a href="{{ url_for('download_evidence', violation_id=v.id) }}"
+                   class="btn btn-success btn-sm" title="Download evidence">
+                  <i class="bi bi-download me-1"></i>Download
+                </a>
+                <form action="{{ url_for('delete_challan', violation_id=v.id) }}"
+                      method="POST" style="display:inline">
+                  <button type="submit" class="btn btn-danger btn-sm"
+                          onclick="return confirm('Delete challan #{{ v.id }} permanently?\nThis will also remove evidence files.')">
+                    <i class="bi bi-trash me-1"></i>Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="text-center text-muted py-5">
+              <i class="bi bi-inbox" style="font-size:2rem"></i>
+              <p class="mt-2 mb-0">No violations recorded yet.</p>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Pagination -->
+<div class="d-flex justify-content-center mt-3 gap-2">
+  {% if page > 1 %}
+  <a href="{{ url_for('history', page=page-1) }}"
+     class="btn btn-sm btn-outline-secondary">← Prev</a>
+  {% endif %}
+  <span class="btn btn-sm btn-secondary disabled">Page {{ page }}</span>
+  {% if violations|length == 20 %}
+  <a href="{{ url_for('history', page=page+1) }}"
+     class="btn btn-sm btn-outline-secondary">Next →</a>
+  {% endif %}
+</div>
+
+<!-- ── Evidence Modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="evidenceModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content bg-dark border-secondary">
+
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title text-light">
+          <i class="bi bi-shield-exclamation text-danger me-2"></i>
+          Violation Evidence
+        </h6>
+        <button type="button" class="btn-close btn-close-white"
+                data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body p-3">
+        <div class="row g-3">
+
+          <!-- Evidence image -->
+          <div class="col-lg-9">
+            <p class="text-muted small mb-2">
+              <i class="bi bi-camera me-1"></i>Annotated Frame
+            </p>
+            <div style="background:#111;border-radius:8px;min-height:360px;
+                        display:flex;align-items:center;justify-content:center;
+                        overflow:hidden">
+              <div id="imgSpinner" style="text-align:center">
+                <div class="spinner-border text-danger mb-2"></div>
+                <p class="text-muted small mb-0">Loading evidence…</p>
+              </div>
+              <img id="evidenceImage"
+                   src="" alt="Evidence"
+                   class="img-fluid rounded"
+                   style="max-height:80vh;width:100%;object-fit:contain;display:none"
+                   onload="this.style.display='block';
+                           document.getElementById('imgSpinner').style.display='none';"
+                   onerror="this.src='/static/img/no-image.png';
+                            this.style.display='block';
+                            document.getElementById('imgSpinner').style.display='none';"/>
+            </div>
+          </div>
+
+          <!-- Side panel -->
+          <div class="col-lg-3 d-flex flex-column gap-3">
+            <div class="dark-card p-3 rounded">
+              <p class="text-muted small mb-2">
+                <i class="bi bi-info-circle me-1"></i>Details
+              </p>
+              <div class="d-flex justify-content-between mb-1">
+                <span class="text-muted small">Timestamp</span>
+                <span id="detailTime" class="text-light small"></span>
+              </div>
+            </div>
+
+            <div class="d-flex flex-column gap-2 mt-auto">
+              <a id="btnOpenFull" href="#" target="_blank"
+                 class="btn btn-outline-info btn-sm">
+                <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Size
+              </a>
+              <a id="btnDownload" href="#"
+                 class="btn btn-success btn-sm">
+                <i class="bi bi-download me-1"></i>Download Evidence
+              </a>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _bsModal = null;
+
+function openEvidence(imgUrl, timestamp, violationId) {
+  const img     = document.getElementById('evidenceImage');
+  const spinner = document.getElementById('imgSpinner');
+
+  img.style.display     = 'none';
+  img.src               = '';
+  spinner.style.display = 'block';
+
+  document.getElementById('detailTime').textContent = timestamp;
+  document.getElementById('btnOpenFull').href       = imgUrl;
+  document.getElementById('btnDownload').href       =
+    '/download_evidence/' + violationId;
+
+  if (!_bsModal) {
+    _bsModal = new bootstrap.Modal(
+      document.getElementById('evidenceModal'),
+      { backdrop: true, keyboard: true }
+    );
+  }
+  _bsModal.show();
+
+  // Set src after Bootstrap fade (320 ms) to prevent black-image bug
+  setTimeout(() => {
+    img.src = imgUrl + '?_=' + Date.now();
+  }, 320);
+}
+</script>
+{% endblock %}

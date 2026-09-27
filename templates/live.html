@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Live Detection{% endblock %}
+
+{% block content %}
+<h4 class="page-title mb-4">
+  <i class="bi bi-camera-video me-2"></i>Live Detection
+</h4>
+
+<div class="row g-3">
+
+  <!-- Camera source selector -->
+  <div class="col-12">
+    <div class="card dark-card mb-3">
+      <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+        <label class="text-light fw-semibold">Source:</label>
+        <select id="srcSelect"
+                class="form-select form-select-sm w-auto bg-dark text-light border-secondary">
+          <option value="0">Webcam (index 0)</option>
+          <option value="1">Webcam (index 1)</option>
+          <option value="rtsp">RTSP / IP Camera</option>
+        </select>
+        <input id="rtspUrl"
+               class="form-control form-control-sm w-auto bg-dark text-light border-secondary d-none"
+               placeholder="rtsp://user:pass@ip:port/stream"/>
+        <button id="btnStart" class="btn btn-success btn-sm">
+          <i class="bi bi-play-fill me-1"></i>Start
+        </button>
+        <button id="btnStop" class="btn btn-danger btn-sm" disabled>
+          <i class="bi bi-stop-fill me-1"></i>Stop
+        </button>
+        <span id="liveStatus" class="badge bg-secondary ms-2">Idle</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live feed -->
+  <div class="col-lg-9">
+    <div class="card dark-card h-100">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-broadcast text-danger"></i>
+        <span>Live Feed</span>
+        <span id="recDot" class="ms-auto" style="display:none">
+          <span class="badge bg-danger">
+            <i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>REC
+          </span>
+        </span>
+      </div>
+      <div class="card-body p-0 text-center bg-black"
+           style="min-height:460px;position:relative">
+        <img id="liveFeed" src="" class="img-fluid w-100"
+             style="display:none;max-height:560px;object-fit:contain"/>
+        <div id="feedPlaceholder"
+             class="d-flex align-items-center justify-content-center h-100 text-muted"
+             style="min-height:460px">
+          <div>
+            <i class="bi bi-camera-video-off" style="font-size:3rem"></i>
+            <p class="mt-2 mb-0">Press Start to begin live detection</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detection status panel -->
+  <div class="col-lg-3">
+    <div class="card dark-card">
+      <div class="card-header">
+        <i class="bi bi-activity me-2"></i>Detection Status
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="text-muted small">Persons</span>
+          <span id="cnt-person" class="badge bg-primary">–</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="text-muted small">Motorcycles</span>
+          <span id="cnt-moto" class="badge" style="background:#c800c8">–</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="text-muted small">
+            <i class="bi bi-check-circle text-success me-1"></i>Helmet
+          </span>
+          <span id="cnt-helmet" class="badge bg-success">–</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="text-muted small">
+            <i class="bi bi-x-circle text-danger me-1"></i>No Helmet
+          </span>
+          <span id="cnt-nohelmet" class="badge bg-danger">–</span>
+        </div>
+        <hr class="border-secondary my-2"/>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small">Violations today</span>
+          <span id="cnt-violations" class="badge bg-warning text-dark">–</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted small">Total violations</span>
+          <span id="cnt-total" class="badge bg-secondary">–</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const feed        = document.getElementById('liveFeed');
+const placeholder = document.getElementById('feedPlaceholder');
+const btnStart    = document.getElementById('btnStart');
+const btnStop     = document.getElementById('btnStop');
+const statusBadge = document.getElementById('liveStatus');
+const recDot      = document.getElementById('recDot');
+const srcSelect   = document.getElementById('srcSelect');
+const rtspInput   = document.getElementById('rtspUrl');
+
+let running   = false;
+let pollTimer = null;
+
+srcSelect.addEventListener('change', () => {
+  rtspInput.classList.toggle('d-none', srcSelect.value !== 'rtsp');
+});
+
+btnStart.addEventListener('click', () => {
+  const src = srcSelect.value === 'rtsp'
+    ? encodeURIComponent(rtspInput.value.trim())
+    : srcSelect.value;
+
+  feed.src                  = '/video_feed?src=' + src + '&t=' + Date.now();
+  feed.style.display        = 'block';
+  placeholder.style.display = 'none';
+  recDot.style.display      = 'inline';
+  btnStart.disabled         = true;
+  btnStop.disabled          = false;
+  statusBadge.className     = 'badge bg-success ms-2';
+  statusBadge.textContent   = 'Live';
+  running = true;
+
+  ['cnt-person','cnt-moto','cnt-helmet','cnt-nohelmet'].forEach(id => {
+    document.getElementById(id).textContent = '0';
+  });
+
+  startPolling();
+});
+
+btnStop.addEventListener('click', () => {
+  feed.src                  = '';
+  feed.style.display        = 'none';
+  placeholder.style.display = 'flex';
+  recDot.style.display      = 'none';
+  btnStart.disabled         = false;
+  btnStop.disabled          = true;
+  statusBadge.className     = 'badge bg-secondary ms-2';
+  statusBadge.textContent   = 'Idle';
+  running = false;
+  if (pollTimer) clearInterval(pollTimer);
+});
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollStats();
+  pollTimer = setInterval(() => {
+    if (!running) return;
+    pollStats();
+  }, 4000);
+}
+
+function pollStats() {
+  fetch('/api/stats')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('cnt-violations').textContent = d.today;
+      document.getElementById('cnt-total').textContent      = d.total;
+    })
+    .catch(() => {});
+}
+</script>
+{% endblock %}
